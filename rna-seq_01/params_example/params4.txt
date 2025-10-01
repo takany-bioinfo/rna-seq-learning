@@ -1,0 +1,7 @@
+  -b T{20}
+  --overlap 20
+  --max-n 0.05
+  --poly-a
+  --nextseq-trim 20
+  --quality-cutoff 20
+  --minimum-length 20

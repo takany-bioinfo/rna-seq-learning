@@ -1,0 +1,26 @@
+/* style.css */
+pre  code {
+  font-family: "Fira Code", Consolas, monospace;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+.indent {
+  padding-left: 4em !important;
+  font-size: 90% !important;
+}
+h1, h2, h3, h4 {
+  margin-top: 2em;
+}
+h5, h6 {
+  margin-top: 1em;
+}
+h1.title {
+  margin-bottom: 0.3em;
+  font-size: 1.75em;
+}
+.author, .date {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+  line-height: 1.2;
+  font-size: 0.95em; 
+}

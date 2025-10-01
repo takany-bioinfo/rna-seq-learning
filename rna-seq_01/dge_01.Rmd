@@ -1,0 +1,337 @@
+---
+title: "DGE_01: はじめてのDGE解析 – Rで差次的遺伝子発現解析を試してみる"
+author: "takany"
+date: "2025-09-21"
+output:
+  html_document:
+    self_contained: true
+    css: style.css
+---
+
+### はじめに  
+　このドキュメントでは、Google Colab Notebook「rns-seq_01」で作成した count.txt ファイルを使い、Rで差次的遺伝子発現解析（DGE解析）を行います。使用するのは公開データセットですが、元論文の著者や研究内容とは関係ありません。学習目的のシンプルなデータセットのため、本解析の結果をもとに研究の評価や科学的な議論を行うものではありません。
+
+
+### BiocManagerのインストール
+
+<small>💡BiocManagerは、Bioconductor パッケージのインストールや管理を行うための R パッケージ
+
+💡Bioconductor は、バイオインフォマティクス関連の R パッケージを提供するリポジトリ</small>
+
+
+##### ------- Installing BiocManager-------
+
+//: BiocManagerがインストールされていなければインストール <small>💡「!」は 論理否定(not)を意味する演算子</small>
+
+```{r, message = FALSE, warning=FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages(
+    "BiocManager",
+    repos = "https://cloud.r-project.org"
+  )
+}
+```
+
+
+### DESeq2をインストール
+
+<small>💡DESeq2はBioconductorのパッケージ</small>
+
+//: DESeq2 がインストールされてなければ biocManager でインストール
+
+```{r, message = FALSE, warning=FALSE}
+if (!requireNamespace("DESeq2", quietly = TRUE)) { 
+  BiocManager::install(
+    "DESeq2"
+  )
+}
+library(DESeq2)
+```
+
+
+### データの整形
+
+・カウントファイルから解析対象列のみを抽出し、列名を整える。<br> 
+<div class="indent">💡featureCountの出力は６列目以降が解析対象となるカウントデータ<br>
+💡featureCount の出力は列名にパスや拡張子 .bam が含まれている<br>
+（X.content.ERR4471712.bam → ERR4471712</small>）<br></div>
+<br>
+
+・メタデータの条件レベルをfactorに変換し、レベル順位を設定して並び替える。<br>
+<div class="indent">💡リード名と条件レベル（"stage"）を記録した meta.csv を用意しておく<br></div>
+<br>
+
+・メタデータの行順をもとにカウントデータの列を並び替える<br>
+
+##### -------Count Data preparation-------
+
+//: counts.txt ファイルを読み込む <small>💡 sep="\\t" はタブ区切りを意味する</small><br>
+//: counts データの 6 列目以降の列を count_matrix に格納する<br>
+//: 元の列名の11～20文字目のみを新たな列名にする<br>
+
+```{r}
+counts <- read.table("./data/counts.txt",
+                     header = TRUE,
+                     sep = "\t", 
+                     comment.char = "#", 
+                     row.names = 1
+                    )
+
+count_matrix <- counts[,
+                       6:ncol(counts)  
+                       ]                    
+
+ori_colnames <- colnames(count_matrix) 
+
+new_colnames <- substr(ori_colnames,
+                          11, 
+                          20           
+                          ) 
+colnames(count_matrix) <- new_colnames 
+```
+
+```{r, echo = FALSE}
+knitr::kable(head(count_matrix), 
+             format = "html",
+             caption = "count_matrixの先頭数行"
+             )
+```
+
+##### -----Meta Data prep-------
+
+//:メタデータを読み込む<br>
+//: stage を factor に変換し、順序を明示的に指定する <small>💡 drop = FALSE は自動的なベクトル変換を防ぐため</small><br>
+//: metadata と count_matrix を stage 順に並び変える<br>
+//: count_matrix の列名とmetadata の行名が完全に一致していることを確認する<br>
+
+```{r}
+metadata <- read.csv("./data/meta.csv",
+                     row.names=1,
+                     stringsAsFactors = FALSE
+                     ) 
+ 
+stage_levels <- read.csv("./data/stage_level.csv", 
+                         stringsAsFactors = FALSE
+                         )[[1]]
+
+metadata$stage <- factor(metadata$stage,
+                         levels = stage_levels
+                         ) 
+# Sorting metadata by "stage"
+metadata <- metadata[order(metadata$stage),
+                     ,
+                     drop = FALSE
+                     ] 
+# Reordering count_matrix columns to match metadata 
+count_matrix <- count_matrix[, rownames(metadata)] 
+
+if (all(colnames(count_matrix) == rownames(metadata))) {
+  print("OK, Match confirmed !") 
+  } else { stop("Error: Names don't match.")
+  }
+
+```
+
+### DESeq2 による差次的遺伝子発現解析
+
+##### -------Differential Expression Analysis with DESeq2-------
+
+//: 解析用オブジェクト（dds）の準備<br>
+//: 総カウントが非常に少ない（10以下）ノイズレベルの遺伝子を除外<br>
+//: DESeq2 による解析を実行<br>
+
+```{r, message = FALSE}
+dds <- DESeqDataSetFromMatrix(countData = count_matrix,
+                              colData = metadata,
+                              design = ~ stage 
+                              ) 
+dds <- dds[rowSums(counts(dds)) >= 10, ] 
+
+dds_result <- DESeq(dds)
+
+```
+
+##### -------Extracting data from dds_result-------
+
+対比方法（contrast）を定義して結果を取得
+
+```{R}
+condition <- colnames(metadata)[1] 
+target_level <- stage_levels[2]    
+reference_level <- stage_levels[1]  
+
+res <- results(dds_result,
+               contrast = c(condition,
+                            target_level,
+                            reference_level
+                            )
+               )
+           
+summary(res) 
+```
+
+データフレームに変換して中身を見てみる
+
+```{r, echo=FALSE}
+res_df <- as.data.frame(res)
+knitr::kable(head(res_df), 
+             format = "html",
+             caption = "resの先頭数行"
+             )
+```
+
+
+### 解析結果の可視化
+
+##### -------MA plot-------
+
+x軸に各遺伝子の平均発現量（baseMeanのlogスケール）、y軸に変化量(log2 fold change)をとり、発現変動とデータ全体のバランスや偏りを確認する
+
+```{r}
+plotMA(res,
+       main="MA plot",
+       ylim=c(-10, 10),
+       alpha = 0.001
+       )
+```
+
+
+##### -------Volcano Plot-------
+
+x軸に発現変動量(log2 fold change)、y軸に統計的有意性（-log10(p-value)）をとり、統計モデルが評価した“変動の大きさ”と“その信頼性”の関係を視覚的に把握する
+
+```{r}
+plot(res$log2FoldChange,           # x-axis: log2 fold change    
+     -log10(res$padj),             # y-axis: negative log10 adjusted p-valu
+     pch = 20,                     # 20番のpoint shape     
+     col = ifelse(res$padj < 0.001 & abs(res$log2FoldChange) >= 1,
+                  "red",
+                  "grey"
+                  ), 
+     xlab = "log2(Fold Change)",
+     ylab = "-log10(Adjusted p-value)",
+     main = "Volcano Plot" 
+    )
+
+legend("topleft", 
+       legend=c("Significant",
+                "Not significant"
+                ),
+       col=c("red",
+             "grey"
+             ), 
+       pch=20)
+```
+
+##### -------PCA plot-------
+
+・サンプル間の発現パターンの違いや類似性を可視化し、主要な変動要因を確認する<br>  
+・あらかじめ、データは分散安定化変換（variance stabilizing transformation)を行う
+
+```{r,  fig.height=2, fig.width=6, out.width="90%"}
+
+vsd <- vst(dds, blind=FALSE)   # blind=FALSE → 条件（design）の情報は保持したまま
+
+plotPCA(vsd, intgroup = c(condition))
+```
+
+#### 差次的発現遺伝子（DEGs）の抽出
+
+//: 有意な遺伝子（padj < 0.001）を抽出<br>
+//: 変動（log2FoldChange(LFC)）の大きい順に並べる<br>
+//: 上位20個のgene_idのリストを作成<br>  
+
+```{r}
+sig_genes <- res[which
+                 (res$padj < 0.001),
+                 ]
+
+sig_genes <- sig_genes[order
+                       (abs(sig_genes$log2FoldChange),
+                         decreasing = TRUE),
+                       ] 
+
+gene_list <- rownames(sig_genes)[1:20]
+```
+
+##### -------Plot Counts-------
+
+上位6個の遺伝子について、発現量（正規化済みカウント）を、条件レベルごとに点でプロットし、実際のカウントのばらつきやパターンを確認する
+
+```{r}
+par(mfrow = c(2, 3))
+
+for (gene_id in gene_list[1:6])
+{
+  plotCounts(dds,
+             gene = gene_id, 
+             intgroup = condition, 
+             main = gene_id
+            )
+  }
+```
+
+
+#### pheatmap パッケージによるヒートマップ
+
+
+//: pheatmapがインストールされてなければbiocManagerでインストール
+
+```{r, message=FALSE, warning=FALSE}
+if (!requireNamespace("pheatmap", quietly = TRUE)) {
+  BiocManager::install("pheatmap")
+  }
+
+library(pheatmap)
+```
+
+##### -------Heat map-------
+
+- 分散安定化変換（vst）を行なった vsd から数値部分だけを行列として取り出し、matデータとする<br>  
+- オプションパラメータの変更
+
+<div class="indent">
+//: scale = "row" 各遺伝子ごとにz-score 標準化<br>
+//: clustering_distance_rows = "correlation" 遺伝子の発現パターンの類似性でクラスタリング<br>
+//: clustering_method = "average", 群平均法で、バランスの良いクラスタリング手法<br>
+//: annotation_col = 列に説明変数を注釈として追加<br>
+//: show_rownames = FALSE 行名は大量なので非表示<br>
+//: angle_col = 45列名の表示は45度傾ける</div><br>
+
+
+```{r}
+mat <- assay(vsd)  
+
+pheatmap( mat, 
+          scale = "row",
+          clustering_distance_rows = "correlation", 
+          clustering_method = "average",  
+          annotation_row = NA,        
+          annotation_col = metadata["stage"],  
+          show_rownames = FALSE,  
+          angle_col = 45,  
+          main = "Heatmap" 
+          )
+
+```
+
+##### --------top 20 だけをプトッロ--------
+
+```{r}
+mat_top <- assay(vsd)[gene_list,] 
+
+pheatmap(mat_top,scale = "row",
+         clustering_distance_rows = "correlation",
+         clustering_method = "average",
+         annotation_row = NA,
+         annotation_col = metadata["stage"],
+         show_rownames = TRUE, 
+         angle_col = 45, 
+         main = "Heatmap for top 20 genes with highest LFC"
+         )
+```
+
+
+#### ・・・・今回の解析はここまでとなります。
+
+※今回は簡易的なデータで解析を行いましたが、rna-seq_02 では、データ数を増やして、より実践的な解析を行います。

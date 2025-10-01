@@ -1,0 +1,353 @@
+---
+title: "DGE_02： Rで行う差次的遺伝子発現解析（DESeq2と可視化）"
+author: "takany"
+date: "2025-09-27"
+output:
+  html_document:
+    self_contained: true
+    css: style.css
+---
+
+### はじめに  
+　このドキュメントでは、Google Colab Notebook「rns-seq_02」で作成した count.txt ファイルを使い、Rで差次的遺伝子発現解析（DGE解析）を行います。使用するのは公開データセットですが、元論文の著者や研究内容とは関係ありません。また、本解析の結果をもとに研究の評価や科学的な議論を行うものではありません。
+
+
+### 使用するパッケージのインストール
+##### ------- Installing Required Packages-------
+
+```{r, message = FALSE, warning=FALSE}
+suppressPackageStartupMessages({
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages(
+    "BiocManager",
+    repos = "https://cloud.r-project.org"
+  )
+}
+
+if (!requireNamespace("DESeq2", quietly = TRUE)) { 
+  BiocManager::install(
+    "DESeq2"
+  )
+}
+library(DESeq2)
+
+if (!requireNamespace("pheatmap", quietly = TRUE)) {
+  BiocManager::install("pheatmap")
+  }
+
+library(pheatmap)
+})  
+
+```
+
+### データの整形
+##### -------Data preparation-------
+
+次のファイルをあらかじめ用意しておく<br>
+
+ - meta.csv、リード名と条件レベル（"stage"）を記載したファイル<br>
+ - stage_level.csv、条件レベル（"stage"）をレベル順に記載した<br>
+
+The following files should be prepared beforehand:<br> 
+
+ – meta.csv, which records sample names and their associated condition levels (stage)<br>
+ – stage_level.csv, which defines the order of the condition levels (stage)<br>
+<br>
+
+※ meta.csvとstage_level.csv のイメージ（最初の6行） 
+```{r, echo = FALSE, message = FALSE}
+
+file1 <- readLines("./data/meta.csv", n = 6)
+file2 <- readLines("./data/stage_level.csv", n = 6)
+for (i in 1:6) {
+  cat(sprintf("%-40s | %-40s\n", file1[i], file2[i]))
+}
+```
+
+ 
+ - featureCountsの出力から6列目以降のカウントデータを抽出し、列名をサンプル名のみに整理する。<br>
+ 
+ - メタデータの条件レベルを因子に変換して順序を設定し、その順に基づいてカウントデータの列を並び替える。<br>
+
+ - Extract count data from the 6th column onward in the featureCounts output and rename the columns to sample names only.
+ 
+ - Convert the condition levels in the metadata to factors with specified order, and reorder the columns of the count data accordingly.
+
+```{r}
+##### -----Meta Data prep-------
+
+metadata <- read.csv("./data/meta.csv",
+                     row.names=1,
+                     stringsAsFactors = FALSE
+                     ) 
+ 
+stage_levels <- read.csv("./data/stage_level.csv", 
+                         stringsAsFactors = FALSE
+                         )[[1]]
+
+metadata$stage <- factor(metadata$stage,
+                         levels = stage_levels
+                         ) 
+
+metadata <- metadata[order(metadata$stage),
+                     ,
+                     drop = FALSE
+                     ] 
+
+###### -------Count Data preparation-------
+
+counts <- read.table("./data/counts.txt",
+                     header = TRUE,
+                     sep = "\t", 
+                     comment.char = "#", 
+                     row.names = 1
+                    )
+
+count_matrix <- counts[,
+                       6:ncol(counts)  
+                       ]                    
+
+ori_colnames <- colnames(count_matrix) 
+
+new_colnames <- substr(ori_colnames,
+                          11, 
+                          20           
+                          ) 
+colnames(count_matrix) <- new_colnames 
+
+
+##### Reordering count_matrix columns to match metadata 
+
+count_matrix <- count_matrix[, rownames(metadata)] 
+
+if (all(colnames(count_matrix) == rownames(metadata))) {
+  print("OK, Match confirmed !") 
+  } else { stop("Error: Names don't match.")
+  }
+
+```
+
+<div style="font-size:70%">
+```{r, echo = FALSE}
+knitr::kable(head(count_matrix), 
+             format = "html",
+             caption = "count_matrixの先頭数行"
+             )
+```
+</div>
+
+### DESeq2 による差次的遺伝子発現解析
+
+##### -------Differential Expression Analysis with DESeq2-------
+
+```{r, message = FALSE}
+dds <- DESeqDataSetFromMatrix(countData = count_matrix,
+                              colData = metadata,
+                              design = ~ stage 
+                              ) 
+dds <- dds[rowSums(counts(dds)) >= 10, ] # Exclude genes with low total counts (less than 10) as noise.
+
+dds_result <- DESeq(dds)
+
+```
+
+##### -------Extracting data from dds_result-------
+
+```{R}
+condition <- colnames(metadata)[1] 
+reference_level <- stage_levels[1]  
+
+res_list <- list()
+sum_list <- list()
+
+for (i in 2:length(stage_levels)) {
+  target_level <- stage_levels[i]
+  name <- paste0(target_level, "_vs_", reference_level)
+  
+  res <- results(dds_result, contrast = c("stage", target_level, reference_level))
+  
+  res_list[[name]] <- res
+  sum_list[[name]] <- capture.output(summary(res))
+}
+```
+
+
+### 解析結果の可視化
+
+#### -------MA plot-------
+
+```{r, fig.height=7,fig.width=9}
+par(mfrow = c(2, 2))
+
+for (name in names(res_list)) {
+  res <- res_list[[name]]
+  plotMA(res,
+         main = paste0("MA plot: ", name),
+         ylim = c(-10, 10),
+         alpha = 0.001)
+}
+```
+
+<small>※ シロイヌナズナの花粉は3細胞性であり、1細胞期（uninucleate）から2細胞期（bicellular、late bicellular）、3細胞期（tricellular）を経て成熟花粉（mature）となる。<br>
+
+🔷 発達段階ごとに発現パターンが変化していることが示唆される。<br>
+
+🔷 初期段階（bicellular まで）は大きな発現変動が少ない。<br>
+
+🔷 late bicellular 以降で転写変動が明確となり、tricellular 期ではさらに顕著になる。<br>
+
+🔷 mature 期では上方制御遺伝子が多く、成熟特異的な発現が示唆される。<br></small>
+
+#### -------Volcano Plot-------
+
+```{r,fig.height=8, fig.width=9}
+par(mfrow = c(2, 2))
+
+for (name in names(res_list)) {
+
+    res <- res_list[[name]]
+    valid <- !is.na(res$padj) & !is.na(res$log2FoldChange) # Filter out rows with NA values
+    res <- res[valid, ]
+
+     plot(res$log2FoldChange, 
+          -log10(res$padj), 
+          pch = 20, 
+          col = ifelse(res$padj < 0.001 & abs(res$log2FoldChange) >= 1,
+                       "red",
+                       "grey"
+                       ),
+          xlab = "log2(Fold Change)",
+          ylab = "-log10(Adjusted p-value)",
+          main = name )
+
+}
+```
+
+※MA plotは発現量に対する変動幅を示し、Volcano plotは変動幅と統計的有意性を同時に示す。
+
+🔷 MA plotの結果を補強し、発達段階ごとの有意な発現変動を明確にしている。
+
+
+#### -------PCA plot-------
+
+```{r, fig.width=7,fig.height=2, out.width="70%"}
+
+vsd <- vst(dds, blind=FALSE)  
+
+plotPCA(vsd, intgroup = c(condition))
+```
+<br>
+<small>🔷 発達段階ごとにサンプルが明確にクラスタリングされている。<br>
+
+🔷 主成分1（PC1）が全体の変動の大部分を説明しており、発達段階が遺伝子発現の主要な変動要因であることが示唆される。<br></small>
+
+
+
+
+
+#### -------Heat map-------
+
+```{r}
+mat <- assay(vsd)  
+
+pheatmap( mat, 
+          scale = "row",
+          clustering_distance_rows = "correlation", 
+          clustering_method = "average",  
+          cluster_cols = FALSE,
+          annotation_row = NA,        
+          annotation_col = metadata["stage"],  
+          show_rownames = FALSE,  
+          angle_col = 45,  
+          main = "Heatmap" 
+          )
+
+```
+
+<small>🔷 発達段階グループ間の発現パターンの類似性が視覚的に確認できる。<br>
+
+🔷 特定のクラスターに条件特異的な発現傾向が見られる。<br></small>
+
+
+
+### 差次的発現遺伝子（DEGs）の抽出
+
+#### -------Identification of Differentially Expressed Genes (DEGs)-------
+
+```{r}
+gene_list <- list()
+
+for (name in names(res_list)) {
+  res <- res_list[[name]]
+  res <- res[!is.na(res$padj), ]
+  sig <- res[res$padj < 0.001, ]
+  
+  sig <- sig[order(abs(sig$log2FoldChange),
+                   decreasing = TRUE),
+             ] 
+  top_gene <- rownames(sig)[1:20]
+  gene_list[[name]] <- top_gene
+}
+
+gene_list_all <- unique(unlist(gene_list))
+
+```
+
+#### -------Plot Counts-------
+
+変動量の大きい4つの遺伝子についてプロットしてみる<br>
+Plotting the four most variable genes
+```{r, fig.height=7}
+
+par(mfrow = c(2, 2))
+
+for (gene_id in gene_list_all[1:4])
+{
+  plotCounts(dds,
+             gene = gene_id, 
+             intgroup = condition, 
+             main = gene_id
+            )
+}
+
+```
+<br>
+<small>🔷 遺伝子ごとに、発達段階に伴う発現の変動パターンに違いが見られる。<br></small>
+<br>
+
+##### --------Heatmap of Top Variable Genes--------
+
+```{r, fig.height=6,fig.width=7}
+mat_top <- assay(vsd)[gene_list_all[1:50],] 
+
+pheatmap(mat_top,scale = "row",
+         clustering_distance_rows = "correlation",
+         clustering_method = "average",
+         annotation_row = NA,
+         annotation_col = metadata["stage"],
+         show_rownames = TRUE, 
+         angle_col = 45, 
+         fontsize_row = 5,
+         fontsize = 7,
+         main = "Heatmap for genes with highest LFC"
+         )
+```
+<br>
+<small>🔷 変動が大きい遺伝子に絞ることで、発達段階間の顕著な違いがより明瞭に可視化されている。<br>
+🔷 遺伝子クラスターごとに、発達段階に応じた特徴的な発現パターンが認められる。<br></small>
+
+---
+
+#### まとめ
+<small>1細胞期から2細胞期への移行段階では、転写プロファイルは比較的安定しているようにみえる。発達が進むにつれて、遺伝子発現ネットワークの再編が進行する兆候が観察される。特に3細胞期では、多数の遺伝子が大きく発現変動し、代謝経路や機能的な転換期を反映する可能性が示唆される。成熟段階においては、アップレギュレーションを示す遺伝子が増える傾向がみられ、成熟段階の生理的・機能的変化が遺伝子発現に反映されていることが推測される。</small>
+
+---
+
+
+#### ・・・・今回の解析はここまでとなります。  
+<br>
+※このあと、抽出した遺伝子IDをもとにアノテーション情報を取得し、生物学的な意義について考察していくことになります。<br>
+<br>
+
+
+
