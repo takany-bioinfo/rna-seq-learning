@@ -38,8 +38,8 @@
 <br>
 
 ## 処理対象データについて
-RNA-Seq データは、Evorepro database より取得した **Arabidopsis thaliana の花粉発達段階の公開データ**を使用しています。  
-以下の9個のサンプルを対象としています（全てPaired-end ）
+RNA-Seqデータは、NCBIのSequence Read Archive（SRA）に公開されている、***Arabidopsis thaliana***の**花粉発達段階**に関するデータです。  
+以下の9個のサンプルを対象としています（全て**Paired-end** ）
 
 | Accession ID | 発達段階        |
 |--------------|-----------------|
