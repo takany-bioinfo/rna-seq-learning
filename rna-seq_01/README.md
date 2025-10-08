@@ -17,7 +17,7 @@ Colab無料版の制限（セッションの自動切断など）を考慮し、
   <br>
 ## 処理内容について
 
-このNotebookは、**Arabidopsis thaliana** の**single-end RNA-Seq**公開データを用いて、**DGE解析**に向けたデータの前処理を行います。
+このNotebookは、***Arabidopsis thaliana*** の**single-end RNA-Seq**公開データを用いて、**DGE解析**に向けたデータの前処理を行います。
 
 
 
@@ -34,12 +34,12 @@ Colab無料版の制限（セッションの自動切断など）を考慮し、
 
 
 ###  参照ファイルについて
-リポジトリに付属しているファイルの元データの入手先はそれぞれ以下の通りです。
+
 
 
    
 - `accession_list.txt` : 解析するRNAseqデータのアクセッションIDを記入したファイル  
-使用する４件のアクセションIDを記入してあります
+使用する４件のアクセションIDを記入してあります。
 
 - `araport11.gtf` : Arabidopsis thaliana の遺伝子アノテーションファイル  
   元データ: https://www.arabidopsis.org/download/file?path=Genes/Araport11_genome_release/Araport11_GTF_genes_transposons.20241001.gtf.gz  
@@ -67,7 +67,7 @@ RNA-Seq データは、Evorepro database より取得した **Arabidopsis thalia
 | ERR4471680   | tricellular     |
 | ERR4471684   | tricellular     |
 |
-- 出典: EEVOREPRO: RNA- seq of Arabidopsis thaliana pollen developmental stages for Ler and Col ecotypes
+- Data source: EVOREPRO database: RNA- seq of Arabidopsis thaliana pollen developmental stages for Ler and Col ecotypes
 - Library Strategy: RNA-Seq  
 - Library Layout: SINGLE  
 - Read Length: 75bp  
